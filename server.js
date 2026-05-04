@@ -3,7 +3,8 @@ const https = require('https');
 
 const PORT = process.env.PORT || 3000;
 const API_KEY = process.env.ANTHROPIC_API_KEY || '';
-const MAKE_WEBHOOK = 'https://hook.us2.make.com/4eft8tidygmq8xuyc3n2zxxa5hqe25d4';
+const FROM_EMAIL = 'valeskaponce3@gmail.com';
+const COACHING_EMAIL = 'valeskaponce3@gmail.com';
 
 function callClaude(payload, cb) {
   const nombre = payload.nombre || 'Candidato';
@@ -45,9 +46,7 @@ function callClaude(payload, cb) {
         const end = text.lastIndexOf('}');
         if (start === -1 || end === -1) { cb(new Error('No JSON found')); return; }
         cb(null, JSON.parse(text.substring(start, end + 1)));
-      } catch(e) {
-        cb(new Error('Parse error: ' + e.message));
-      }
+      } catch(e) { cb(new Error('Parse error: ' + e.message)); }
     });
   });
   req.on('error', cb);
@@ -55,21 +54,97 @@ function callClaude(payload, cb) {
   req.end();
 }
 
-function sendToMake(payload) {
-  try {
-    const bodyData = JSON.stringify(payload);
-    const url = new URL(MAKE_WEBHOOK);
-    const opts = {
-      hostname: url.hostname,
-      path: url.pathname,
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyData) }
-    };
-    const req = https.request(opts, function(res) { res.resume(); });
-    req.on('error', function() {});
-    req.write(bodyData);
-    req.end();
-  } catch(e) {}
+function sendEmailBrevo(to, subject, htmlBody) {
+  const emailData = JSON.stringify({
+    sender: { name: 'Valeska Ponce — Believe', email: FROM_EMAIL },
+    to: [{ email: to }],
+    subject: subject,
+    htmlContent: htmlBody
+  });
+
+  const opts = {
+    hostname: 'api.brevo.com',
+    path: '/v3/smtp/email',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-key': process.env.BREVO_API_KEY || '',
+      'Content-Length': Buffer.byteLength(emailData)
+    }
+  };
+
+  const req = https.request(opts, function(res) {
+    let data = '';
+    res.on('data', function(chunk) { data += chunk; });
+    res.on('end', function() {
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        console.log('Email enviado OK a:', to);
+      } else {
+        console.error('Error Brevo ' + res.statusCode + ':', data);
+      }
+    });
+  });
+  req.on('error', function(e) { console.error('Error email:', e.message); });
+  req.write(emailData);
+  req.end();
+}
+
+function sendEmails(payload, diagnostico) {
+  const nombre = payload.nombre || 'Candidato';
+  const emailDestino = payload.email || '';
+  if (!emailDestino) return;
+
+  const score = diagnostico.score || '--';
+  const quote = diagnostico.quote || '';
+  const impacto = diagnostico.impacto || '';
+  const fortalezas = (diagnostico.fortalezas || []).map(function(f) { return '<li style="margin-bottom:6px">' + f + '</li>'; }).join('');
+  const pasos = (diagnostico.proximos_pasos || []).map(function(p) { return '<li style="margin-bottom:6px">' + p + '</li>'; }).join('');
+  const gaps = diagnostico.gaps || {};
+  const gapsHtml = Object.entries(gaps).map(function(entry) {
+    return '<li style="margin-bottom:6px"><strong>' + entry[0] + ':</strong> ' + (entry[1] || []).join(', ') + '</li>';
+  }).join('');
+
+  const htmlUsuario = '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f7f4ef;padding:20px">' +
+    '<div style="background:#1a1610;padding:30px;border-radius:12px;text-align:center;margin-bottom:16px">' +
+    '<h1 style="color:#c4922a;font-size:28px;margin:0;font-family:Georgia,serif">BELIEVE</h1>' +
+    '<p style="color:#fff;margin:8px 0 0;font-size:13px">por Valeska Ponce · Coach de Carrera</p></div>' +
+    '<div style="background:#fff;padding:28px;border-radius:12px;margin-bottom:16px">' +
+    '<h2 style="color:#1a1610;margin:0 0 10px">Hola ' + nombre + ' \uD83D\uDC4B</h2>' +
+    '<p style="color:#6b5e4a;font-size:15px;line-height:1.6;font-style:italic">"' + quote + '"</p></div>' +
+    '<div style="background:#fff;padding:24px;border-radius:12px;margin-bottom:16px;text-align:center">' +
+    '<p style="color:#6b5e4a;font-size:12px;margin:0 0 8px;text-transform:uppercase;letter-spacing:0.1em">Tu \u00CDndice de Empleabilidad</p>' +
+    '<div style="font-size:56px;font-weight:700;color:#c4922a;line-height:1">' + score + '<span style="font-size:24px">/100</span></div>' +
+    '<p style="color:#6b5e4a;font-size:13px;margin:10px 0 0;line-height:1.5">' + impacto + '</p></div>' +
+    '<div style="background:#fff;padding:24px;border-radius:12px;margin-bottom:16px">' +
+    '<h3 style="color:#1a1610;margin:0 0 14px;font-size:16px">\u2705 Tus Fortalezas</h3>' +
+    '<ul style="color:#2c2418;font-size:14px;line-height:1.7;padding-left:20px;margin:0">' + fortalezas + '</ul></div>' +
+    '<div style="background:#fff;padding:24px;border-radius:12px;margin-bottom:16px">' +
+    '<h3 style="color:#1a1610;margin:0 0 14px;font-size:16px">\u26A1 \u00C1reas de Mejora</h3>' +
+    '<ul style="color:#2c2418;font-size:14px;line-height:1.7;padding-left:20px;margin:0">' + gapsHtml + '</ul></div>' +
+    '<div style="background:#fff;padding:24px;border-radius:12px;margin-bottom:16px">' +
+    '<h3 style="color:#1a1610;margin:0 0 14px;font-size:16px">\uD83C\uDFAF Pr\u00F3ximos Pasos</h3>' +
+    '<ul style="color:#2c2418;font-size:14px;line-height:1.7;padding-left:20px;margin:0">' + pasos + '</ul></div>' +
+    '<div style="background:#1a1610;padding:28px;border-radius:12px;text-align:center">' +
+    '<p style="color:#e8c97a;font-size:16px;font-weight:700;margin:0 0 8px">\u00BFLista para transformar este diagn\u00F3stico?</p>' +
+    '<a href="https://wa.me/593980088203?text=Hola%20Valeska!%20Recibi%20mi%20diagnostico%20y%20quiero%20avanzar" ' +
+    'style="display:inline-block;background:#c4922a;color:#1a1610;padding:14px 32px;border-radius:50px;font-weight:700;font-size:14px;text-decoration:none">' +
+    '\uD83D\uDCAC Hablar con Valeska</a>' +
+    '<p style="color:rgba(255,255,255,0.3);font-size:11px;margin:20px 0 0">Believe · valeskaponce3@gmail.com · +593 980088203</p></div>' +
+    '</body></html>';
+
+  sendEmailBrevo(emailDestino, 'Tu Diagn\u00F3stico Estrat\u00E9gico de CV \u2014 Believe', htmlUsuario);
+
+  const htmlLead = '<h2>\uD83D\uDD14 Nuevo lead \u2014 Believe</h2>' +
+    '<p><strong>Nombre:</strong> ' + nombre + '</p>' +
+    '<p><strong>Email:</strong> ' + emailDestino + '</p>' +
+    '<p><strong>Tel\u00E9fono:</strong> ' + (payload.telefono || '--') + '</p>' +
+    '<p><strong>Rol actual:</strong> ' + (payload.rol_actual || '--') + '</p>' +
+    '<p><strong>Meta:</strong> ' + (payload.meta_posicion || '--') + '</p>' +
+    '<p><strong>Salario deseado:</strong> ' + (payload.salario_deseado || '--') + '</p>' +
+    '<p><strong>Obst\u00E1culo:</strong> ' + (payload.obstaculo || '--') + '</p>' +
+    '<p><strong>Score CV:</strong> ' + score + '/100</p>';
+
+  sendEmailBrevo(COACHING_EMAIL, '\uD83D\uDD14 Nuevo lead: ' + nombre + ' \u2014 Score ' + score + '/100', htmlLead);
 }
 
 const server = http.createServer(function(req, res) {
@@ -78,23 +153,14 @@ const server = http.createServer(function(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
-
-  if (req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Believe API OK');
-    return;
-  }
-
-  if (req.method !== 'POST' || req.url !== '/analyze') {
-    res.writeHead(404); res.end('Not found'); return;
-  }
+  if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('Believe API OK'); return; }
+  if (req.method !== 'POST' || req.url !== '/analyze') { res.writeHead(404); res.end('Not found'); return; }
 
   let body = '';
   req.on('data', function(chunk) { body += chunk; });
   req.on('end', function() {
     try {
       const payload = JSON.parse(body);
-      sendToMake(payload);
       callClaude(payload, function(err, result) {
         if (err) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -102,15 +168,13 @@ const server = http.createServer(function(req, res) {
         } else {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(result));
+          try { sendEmails(payload, result); } catch(e) { console.error('sendEmails error:', e.message); }
         }
       });
     } catch(e) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
-    }
+      res.end(JSON.stringify({ error: e.message })); }
   });
 });
 
-server.listen(PORT, function() {
-  console.log('Believe API running on port ' + PORT);
-});
+server.listen(PORT, function() { console.log('Believe API running on port ' + PORT); });
