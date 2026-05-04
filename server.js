@@ -6,18 +6,18 @@ const API_KEY = process.env.ANTHROPIC_API_KEY || '';
 const MAKE_WEBHOOK = 'https://hook.us2.make.com/4eft8tidygmq8xuyc3n2zxxa5hqe25d4';
 
 function callClaude(payload, cb) {
-  const nombre = payload.nombre || '';
-  const rol = payload.rol_actual || '';
-  const meta = payload.meta_posicion || '';
-  const salario = payload.salario_deseado || '';
-  const obstaculo = payload.obstaculo || '';
-  const cv = (payload.cv_texto || '').substring(0, 3000);
+  const nombre = payload.nombre || 'Candidato';
+  const rol = payload.rol_actual || 'Profesional';
+  const meta = payload.meta_posicion || 'Crecer profesionalmente';
+  const salario = payload.salario_deseado || 'No especificado';
+  const obstaculo = payload.obstaculo || 'No especificado';
+  const cv = (payload.cv_texto || 'Sin CV').substring(0, 2000);
 
-  const prompt = 'Actua como experta en Seleccion de Talento y Headhunter de alto nivel.\n\nRealiza un Diagnostico de Quiebre Profesional.\n\nNombre: ' + nombre + '\nRol actual: ' + rol + '\nMeta: ' + meta + '\nSalario deseado: ' + salario + '\nObstaculo: ' + obstaculo + '\nCV: ' + cv + '\n\nResponde SOLO con JSON valido:\n{"score":40,"quote":"frase para ' + nombre + '","impacto":"analisis","gaps":{"actitudes":["gap1","gap2"],"certificaciones":["cert1","cert2"],"conocimientos":["con1","con2"],"habilidades":["hab1","hab2"]},"preguntas_poder":["p1","p2","p3"],"fortalezas":["f1","f2","f3"],"proximos_pasos":["paso1","paso2","paso3"]}';
+  const prompt = 'Eres una experta headhunter. Analiza este perfil y devuelve UNICAMENTE un objeto JSON valido, sin texto adicional, sin markdown.\n\nNombre: ' + nombre + '\nRol: ' + rol + '\nMeta: ' + meta + '\nSalario: ' + salario + '\nObstaculo: ' + obstaculo + '\nCV: ' + cv + '\n\nDevuelve exactamente este JSON:\n{"score":45,"quote":"frase motivadora para ' + nombre + '","impacto":"analisis del CV","gaps":{"actitudes":["gap1","gap2"],"certificaciones":["cert1","cert2"],"conocimientos":["con1","con2"],"habilidades":["hab1","hab2"]},"preguntas_poder":["p1","p2","p3"],"fortalezas":["f1","f2","f3"],"proximos_pasos":["paso1","paso2","paso3"]}';
 
   const bodyData = JSON.stringify({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1500,
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1000,
     messages: [{ role: 'user', content: prompt }]
   });
 
@@ -39,9 +39,12 @@ function callClaude(payload, cb) {
     res.on('end', function() {
       try {
         const parsed = JSON.parse(data);
-        const text = (parsed.content || []).map(function(b) { return b.text || ''; }).join('');
-        const clean = text.replace(/```json|```/g, '').trim();
-        cb(null, JSON.parse(clean));
+        if (parsed.error) { cb(new Error(parsed.error.message || 'API error')); return; }
+        const text = (parsed.content || []).map(function(b) { return b.text || ''; }).join('').trim();
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start === -1 || end === -1) { cb(new Error('No JSON found')); return; }
+        cb(null, JSON.parse(text.substring(start, end + 1)));
       } catch(e) {
         cb(new Error('Parse error: ' + e.message));
       }
@@ -83,9 +86,7 @@ const server = http.createServer(function(req, res) {
   }
 
   if (req.method !== 'POST' || req.url !== '/analyze') {
-    res.writeHead(404);
-    res.end('Not found');
-    return;
+    res.writeHead(404); res.end('Not found'); return;
   }
 
   let body = '';
